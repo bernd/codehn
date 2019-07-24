@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -274,7 +275,10 @@ func fileHandler(file string) func(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	// port 8080 is a good choice
-	port := ":8080"
+	port := ":" + os.Getenv("PORT")
+	if port == ":" {
+		port = ":9999"
+	}
 
 	// set up our routes and handlers
 	http.HandleFunc("/", pageHandler("top"))
