@@ -201,6 +201,14 @@ type container struct {
 // pageHandler returns a handler for the correct page type
 func pageHandler(pageType string) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		authToken := os.Getenv("AUTH_TOKEN")
+		if authToken != "" {
+			if authToken != r.Header.Get("X-CodeHN-Auth") {
+				w.WriteHeader(401)
+				w.Write([]byte("Bitte lass mich!"))
+				return
+			}
+		}
 
 		// we'll get all the stories
 		var s stories
