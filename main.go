@@ -4,7 +4,6 @@ package main
 // lots of imports means lots of time saved
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -180,13 +179,13 @@ func getStoriesFromType(pageType string) (stories, error) {
 
 	res, err := http.Get(url)
 	if err != nil {
-		return nil, errors.New("could not get " + pageType + " hacker news posts list")
+		return nil, fmt.Errorf("could not get " + pageType + " hacker news posts list: %w", err)
 	}
 
 	defer res.Body.Close()
 	s, err := getStories(res)
 	if err != nil {
-		return nil, errors.New("could not get " + pageType + " hacker news posts data")
+		return nil, fmt.Errorf("could not get " + pageType + " hacker news posts data: %w", err)
 	}
 
 	return s, nil
