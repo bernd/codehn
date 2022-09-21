@@ -177,6 +177,7 @@ func getStoriesFromType(pageType string) (stories, error) {
 		url = baseURL + "topstories.json"
 	}
 
+	log.Printf("Getting %s\n", url)
 	res, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("could not get " + pageType + " hacker news posts list: %w", err)
