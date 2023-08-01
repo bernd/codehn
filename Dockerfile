@@ -18,6 +18,7 @@ RUN apk update \
     && rm -rf /var/cache/apk/*
 
 COPY index.tmpl /app/
+COPY index.xml.tmpl /app/
 COPY favicon.ico /app/
 COPY logo.gif /app/
 COPY --from=builder /app/codehn /app/codehn
