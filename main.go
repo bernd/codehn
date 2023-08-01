@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -17,10 +17,10 @@ import (
 	"time"
 
 	// for "33 minutes ago" in the template
-	humanize "github.com/dustin/go-humanize"
+	"github.com/dustin/go-humanize"
 
 	// because the HN API is awkward and slow
-	cache "github.com/pmylund/go-cache"
+	"github.com/pmylund/go-cache"
 )
 
 // baseURL is the URL for the hacker news API
@@ -30,7 +30,7 @@ var baseURL = "https://hacker-news.firebaseio.com/v0/"
 var cash *cache.Cache
 
 // we will ensure the template is valid and only load
-var tmpl *template.Template
+var htmlTmpl *template.Template
 var xmlTmpl *textTemplate.Template
 
 func init() {
@@ -40,7 +40,7 @@ func init() {
 	cash = cache.New(30*time.Minute, 10*time.Minute)
 
 	// this will panic if the index.tmpl isn't valid
-	tmpl = template.Must(template.ParseFiles("index.tmpl"))
+	htmlTmpl = template.Must(template.ParseFiles("index.tmpl"))
 	xmlTmpl = textTemplate.Must(textTemplate.ParseFiles("index.xml.tmpl"))
 }
 
@@ -78,14 +78,16 @@ var storiesMutex sync.Mutex
 func getStories(res *http.Response) (stories, error) {
 
 	// this is bad! we should limit the request body size
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	// get all the story keys into a slice of ints
 	var keys []int
-	json.Unmarshal(body, &keys)
+	if err := json.Unmarshal(body, &keys); err != nil {
+		return nil, fmt.Errorf("couldn't parse story body: %w", err)
+	}
 
 	// concurrency is cool, but needs to be limited
 	semaphore := make(chan struct{}, 10)
@@ -110,12 +112,10 @@ func getStories(res *http.Response) (stories, error) {
 		// sleep to avoid rate limiting from API
 		time.Sleep(10 * time.Millisecond)
 
+		// add one to the wait group
+		wg.Add(1)
 		// in a goroutine with the story key
 		go func(storyKey int) {
-
-			// add one to the wait group
-			wg.Add(1)
-
 			// add one to the semaphore
 			semaphore <- struct{}{}
 
@@ -137,7 +137,7 @@ func getStories(res *http.Response) (stories, error) {
 			}
 			defer resp.Body.Close()
 
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return
 			}
@@ -179,20 +179,20 @@ func getStories(res *http.Response) (stories, error) {
 
 // getStoriesFromType gets the different types of stories the API exposes
 func getStoriesFromType(pageType string) (stories, error) {
-	var url string
+	var pageTypeUrl string
 	switch pageType {
 	case "best":
-		url = baseURL + "beststories.json"
+		pageTypeUrl = baseURL + "beststories.json"
 	case "new":
-		url = baseURL + "newstories.json"
+		pageTypeUrl = baseURL + "newstories.json"
 	case "show":
-		url = baseURL + "showstories.json"
+		pageTypeUrl = baseURL + "showstories.json"
 	default:
-		url = baseURL + "topstories.json"
+		pageTypeUrl = baseURL + "topstories.json"
 	}
 
-	log.Printf("Getting %s\n", url)
-	res, err := http.Get(url)
+	log.Printf("Getting %s\n", pageTypeUrl)
+	res, err := http.Get(pageTypeUrl)
 	if err != nil {
 		return nil, fmt.Errorf("could not get "+pageType+" hacker news posts list: %w", err)
 	}
@@ -221,7 +221,7 @@ func pageHandler(pageType string, pageFormat PageFormat) func(w http.ResponseWri
 		if authToken != "" {
 			if authToken != r.Header.Get("X-CodeHN-Auth") && authToken != r.URL.Query().Get("token") {
 				w.WriteHeader(401)
-				w.Write([]byte("Bitte lass mich!"))
+				_, _ = w.Write([]byte("Bitte lass mich!"))
 				return
 			}
 		}
@@ -250,20 +250,12 @@ func pageHandler(pageType string, pageFormat PageFormat) func(w http.ResponseWri
 			s, err = getStoriesFromType(pageType)
 			if err != nil {
 				w.WriteHeader(500)
-				w.Write([]byte(err.Error()))
+				_, _ = w.Write([]byte(err.Error()))
 				return
 			}
 
 			// set the cached stories for this page type
 			cash.Set(pageType, s, cache.DefaultExpiration)
-		}
-
-		// parse the template file and return an error if it's broken
-		tmpl, err := template.ParseFiles("index.tmpl")
-		if err != nil {
-			w.WriteHeader(500)
-			w.Write([]byte("could not parse template file"))
-			return
 		}
 
 		// finally let's just return 200 and write the template out
@@ -279,7 +271,7 @@ func pageHandler(pageType string, pageFormat PageFormat) func(w http.ResponseWri
 		case HTMLFormat:
 			w.Header().Set("Content-Type", "text/html;charset=utf-8")
 			// execute the template which writes to w and uses container input
-			_ = tmpl.Execute(w, data)
+			_ = htmlTmpl.Execute(w, data)
 		case AtomFormat:
 			w.Header().Set("Content-Type", "application/atom+xml;charset=utf-8")
 			_ = xmlTmpl.Execute(w, data)
@@ -297,7 +289,7 @@ func fileHandler(file string) func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, "./logo.gif")
 		default:
 			w.WriteHeader(404)
-			w.Write([]byte("file not found"))
+			_, _ = w.Write([]byte("file not found"))
 		}
 	}
 }
