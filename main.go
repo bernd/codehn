@@ -305,6 +305,7 @@ func main() {
 
 	// set up our routes and handlers
 	http.HandleFunc("/", pageHandler("top", HTMLFormat))
+	http.HandleFunc("/top.xml", pageHandler("top", AtomFormat))
 	http.HandleFunc("/new", pageHandler("new", HTMLFormat))
 	http.HandleFunc("/new.xml", pageHandler("new", AtomFormat))
 	http.HandleFunc("/show", pageHandler("show", HTMLFormat))
