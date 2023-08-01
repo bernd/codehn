@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	textTemplate "text/template"
 	"time"
 
 	// for "33 minutes ago" in the template
@@ -30,6 +31,7 @@ var cash *cache.Cache
 
 // we will ensure the template is valid and only load
 var tmpl *template.Template
+var xmlTmpl *textTemplate.Template
 
 func init() {
 
@@ -39,6 +41,7 @@ func init() {
 
 	// this will panic if the index.tmpl isn't valid
 	tmpl = template.Must(template.ParseFiles("index.tmpl"))
+	xmlTmpl = textTemplate.Must(textTemplate.ParseFiles("index.xml.tmpl"))
 }
 
 // story holds the response from the HN API and
@@ -53,12 +56,21 @@ type story struct {
 	Title       string `json:"title"`
 	Type        string `json:"type"`
 	URL         string `json:"url"`
+	Text        string `json:"text"`
 	DomainName  string
 	HumanTime   string
+	ISOTime     string
 }
 
 // stories is just a bunch of story pointers
 type stories []*story
+
+type PageFormat int
+
+const (
+	HTMLFormat PageFormat = iota
+	AtomFormat
+)
 
 var storiesMutex sync.Mutex
 
@@ -147,7 +159,9 @@ func getStories(res *http.Response) (stories, error) {
 
 			// check if it's from github or gitlab before adding to stories
 			if strings.Contains(h, "github") || strings.Contains(h, "gitlab") {
-				s.HumanTime = humanize.Time(time.Unix(int64(s.Time), 0))
+				unixTime := time.Unix(int64(s.Time), 0)
+				s.HumanTime = humanize.Time(unixTime)
+				s.ISOTime = unixTime.Format(time.RFC3339)
 				s.DomainName = h
 				storiesMutex.Lock()
 				stories = append(stories, s)
@@ -180,13 +194,13 @@ func getStoriesFromType(pageType string) (stories, error) {
 	log.Printf("Getting %s\n", url)
 	res, err := http.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("could not get " + pageType + " hacker news posts list: %w", err)
+		return nil, fmt.Errorf("could not get "+pageType+" hacker news posts list: %w", err)
 	}
 
 	defer res.Body.Close()
 	s, err := getStories(res)
 	if err != nil {
-		return nil, fmt.Errorf("could not get " + pageType + " hacker news posts data: %w", err)
+		return nil, fmt.Errorf("could not get "+pageType+" hacker news posts data: %w", err)
 	}
 
 	return s, nil
@@ -194,16 +208,18 @@ func getStoriesFromType(pageType string) (stories, error) {
 
 // container holds data used by the template
 type container struct {
-	Page    string
-	Stories stories
+	Page      string
+	PageURL   string
+	UpdatedAt string
+	Stories   stories
 }
 
 // pageHandler returns a handler for the correct page type
-func pageHandler(pageType string) func(w http.ResponseWriter, r *http.Request) {
+func pageHandler(pageType string, pageFormat PageFormat) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authToken := os.Getenv("AUTH_TOKEN")
 		if authToken != "" {
-			if authToken != r.Header.Get("X-CodeHN-Auth") {
+			if authToken != r.Header.Get("X-CodeHN-Auth") && authToken != r.URL.Query().Get("token") {
 				w.WriteHeader(401)
 				w.Write([]byte("Bitte lass mich!"))
 				return
@@ -253,14 +269,21 @@ func pageHandler(pageType string) func(w http.ResponseWriter, r *http.Request) {
 		// finally let's just return 200 and write the template out
 		w.WriteHeader(200)
 
-		// set the content type header with html and utf encoding
-		w.Header().Set("Content-type", "text/html;charset=utf-8")
-
-		// execute the template which writes to w and uses container input
-		tmpl.Execute(w, container{
-			Stories: s,
-			Page:    pageType,
-		})
+		data := container{
+			Stories:   s,
+			Page:      pageType,
+			PageURL:   fmt.Sprintf("https://%s/", r.Host),
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		switch pageFormat {
+		case HTMLFormat:
+			w.Header().Set("Content-Type", "text/html;charset=utf-8")
+			// execute the template which writes to w and uses container input
+			_ = tmpl.Execute(w, data)
+		case AtomFormat:
+			w.Header().Set("Content-Type", "application/atom+xml;charset=utf-8")
+			_ = xmlTmpl.Execute(w, data)
+		}
 	}
 }
 
@@ -289,10 +312,11 @@ func main() {
 	}
 
 	// set up our routes and handlers
-	http.HandleFunc("/", pageHandler("top"))
-	http.HandleFunc("/new", pageHandler("new"))
-	http.HandleFunc("/show", pageHandler("show"))
-	http.HandleFunc("/best", pageHandler("best"))
+	http.HandleFunc("/", pageHandler("top", HTMLFormat))
+	http.HandleFunc("/new", pageHandler("new", HTMLFormat))
+	http.HandleFunc("/new.xml", pageHandler("new", AtomFormat))
+	http.HandleFunc("/show", pageHandler("show", HTMLFormat))
+	http.HandleFunc("/best", pageHandler("best", HTMLFormat))
 
 	// serve the favicon and logo files
 	http.HandleFunc("/favicon.ico", fileHandler("favicon"))

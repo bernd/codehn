@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  {{- /*gotype: github.com/bernd/codehn.container*/ -}}
+  <title>Code HN Feed</title>
+  <id>{{ .PageURL }}</id>
+  <updated>{{ .UpdatedAt }}</updated>
+  <link href="{{ .PageURL }}"></link>
+  <author>
+    <name>Herbal Nerds</name>
+  </author>
+  {{ range .Stories }}
+  {{- /*gotype:github.com/bernd/codehn.story*/ -}}
+  <entry>
+    <id>{{ .ID }}</id>
+    <title>{{ .Title }}</title>
+    <updated>{{ .ISOTime }}</updated>
+    <link href="{{ .URL }}" rel="alternate"></link>
+    <summary type="html">{{ .Text }}</summary>
+    <author>
+      <name>{{ .By }}</name>
+    </author>
+  </entry>
+  {{ end }}
+</feed>
