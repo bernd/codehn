@@ -1,3 +1,4 @@
+{{- /*gotype: github.com/bernd/codehn.container*/ -}}
 <html>
   <head>
     <link rel="icon" href="/favicon.ico">
@@ -133,6 +134,7 @@
       </div>
       <div id="links">
         <ul>{{range .Stories}}
+          {{- /*gotype:github.com/bernd/codehn.story*/ -}}
           <li>
             <a class="title" href="{{.URL}}">{{.Title}}</a>
             <span class="link">(github.com)</span>
